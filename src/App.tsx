@@ -96,9 +96,14 @@ export default function App() {
       setSyncStatus('Diary is up-to-date across your devices!');
       setTimeout(() => setSyncStatus(null), 3500);
       await refreshData();
-    } catch (err) {
+    } catch (err: unknown) {
       console.warn('Sync from cloud error:', err);
-      setSyncStatus('Cloud sync error.');
+      const errMsg = err instanceof Error ? err.message : String(err);
+      if (errMsg.includes('permission-denied') || errMsg.includes('Missing or insufficient permissions')) {
+        setSyncStatus('Firestore Rules error: Please update Firestore Rules in Firebase Console to allow read/write.');
+      } else {
+        setSyncStatus(`Cloud sync notice: ${errMsg}`);
+      }
     } finally {
       setIsSyncing(false);
     }

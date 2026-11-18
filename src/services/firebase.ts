@@ -242,8 +242,7 @@ export async function fetchEntriesFromCloud(userId: string): Promise<DiaryEntry[
   if (!firestore) return [];
 
   const entriesRef = collection(firestore, `users/${userId}/entries`);
-  const q = query(entriesRef, orderBy('createdAt', 'desc'));
-  const querySnapshot = await getDocs(q);
+  const querySnapshot = await getDocs(entriesRef);
 
   const cloudEntries: DiaryEntry[] = [];
   querySnapshot.forEach((docSnap) => {
@@ -268,7 +267,7 @@ export async function fetchEntriesFromCloud(userId: string): Promise<DiaryEntry[
     });
   });
 
-  return cloudEntries;
+  return cloudEntries.sort((a, b) => b.createdAt - a.createdAt);
 }
 
 export async function deleteEntryFromCloud(userId: string, entryId: string): Promise<void> {
