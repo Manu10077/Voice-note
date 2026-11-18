@@ -89,10 +89,21 @@ export default function App() {
     setIsSyncing(true);
     setSyncStatus('Syncing your cloud diary...');
     try {
+      // 1. Upload any local entries that haven't been synced to cloud yet
+      const localEntries = await getAllEntries();
+      for (const localEntry of localEntries) {
+        if (!localEntry.syncedToCloud && localEntry.id !== 'welcome_entry') {
+          const synced = await syncEntryToCloud(activeUser.uid, localEntry);
+          await saveEntry(synced);
+        }
+      }
+
+      // 2. Fetch all entries from Firestore
       const cloudEntries = await fetchEntriesFromCloud(activeUser.uid);
       for (const entry of cloudEntries) {
         await saveEntry(entry);
       }
+
       setSyncStatus('Diary is up-to-date across your devices!');
       setTimeout(() => setSyncStatus(null), 3500);
       await refreshData();
@@ -100,7 +111,7 @@ export default function App() {
       console.warn('Sync from cloud error:', err);
       const errMsg = err instanceof Error ? err.message : String(err);
       if (errMsg.includes('permission-denied') || errMsg.includes('Missing or insufficient permissions')) {
-        setSyncStatus('Firestore Rules error: Please update Firestore Rules in Firebase Console to allow read/write.');
+        setSyncStatus('Firestore permission denied: Please check and publish Firestore Rules in Firebase Console.');
       } else {
         setSyncStatus(`Cloud sync notice: ${errMsg}`);
       }
@@ -164,14 +175,23 @@ export default function App() {
     await saveEntry(newEntry);
     await refreshData();
 
-    // 2. If user is signed in, sync audio and metadata to Cloud Storage + Firestore
+    // 2. If user is signed in, sync immediately to Firestore
     if (user) {
+      setSyncStatus('Uploading recording to cloud...');
       try {
         const synced = await syncEntryToCloud(user.uid, newEntry);
         await saveEntry(synced);
         await refreshData();
-      } catch (err) {
-        console.warn('Background cloud sync failed:', err);
+        setSyncStatus('Saved & Synced to Cloud! ☁️');
+        setTimeout(() => setSyncStatus(null), 3000);
+      } catch (err: unknown) {
+        console.error('Background cloud sync failed:', err);
+        const errMsg = err instanceof Error ? err.message : String(err);
+        if (errMsg.includes('permission-denied') || errMsg.includes('Missing or insufficient permissions')) {
+          setSyncStatus('Firestore permission denied: Please publish Firestore Rules in Firebase Console.');
+        } else {
+          setSyncStatus(`Cloud save notice: ${errMsg}`);
+        }
       }
     }
   };
@@ -234,10 +254,21 @@ export default function App() {
       />
 
       {/* Cloud Sync Status Banner */}
-      {syncStatus && (
-        <div className="bg-amber-100/90 dark:bg-amber-950/80 border-b border-amber-200 dark:border-amber-900 py-1.5 px-4 text-center text-xs text-amber-900 dark:text-amber-200 flex items-center justify-center gap-2">
-          {isSyncing ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Cloud className="w-3.5 h-3.5 text-amber-600" />}
-          <span>{syncStatus}</span>
+      {(syncStatus || user) && (
+        <div className="bg-amber-100/90 dark:bg-amber-950/80 border-b border-amber-200 dark:border-amber-900 py-1.5 px-4 text-center text-xs text-amber-900 dark:text-amber-200 flex items-center justify-center gap-3">
+          <div className="flex items-center gap-1.5">
+            {isSyncing ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Cloud className="w-3.5 h-3.5 text-amber-600" />}
+            <span>{syncStatus || `Signed in as ${user?.displayName || user?.email}`}</span>
+          </div>
+          {user && !isSyncing && (
+            <button
+              type="button"
+              onClick={() => syncFromCloud(user)}
+              className="text-[11px] underline font-medium hover:text-amber-700 dark:hover:text-amber-300 ml-1"
+            >
+              Sync to Cloud
+            </button>
+          )}
         </div>
       )}
 

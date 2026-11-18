@@ -185,20 +185,13 @@ function blobToBase64(blob: Blob): Promise<string> {
 
 // 5. Firestore Database helpers
 export async function syncEntryToCloud(userId: string, entry: DiaryEntry): Promise<DiaryEntry> {
-  if (!firestore) return entry;
-
-  // 1. If Cloud Storage is available, try uploading audio there
-  let cloudAudioUrl = entry.audioUrl;
-  if (entry.audioBlob && storage && (!cloudAudioUrl || cloudAudioUrl.startsWith('blob:'))) {
-    try {
-      cloudAudioUrl = await uploadAudioToStorage(userId, entry.id, entry.audioBlob);
-    } catch (err) {
-      console.warn('Firebase Storage upload skipped/failed (Spark plan). Saving audio directly into Firestore:', err);
-    }
+  if (!firestore) {
+    throw new Error('Firestore is not initialized.');
   }
 
-  // 2. Spark Plan Free Fallback: If Storage bucket requires Blaze plan,
-  // save the audio directly as a Base64 data URL inside Firestore (up to 1MB per document)!
+  let cloudAudioUrl = entry.audioUrl;
+
+  // Convert audio Blob to Base64 data URL for direct Firestore storage (works 100% free on Spark plan)
   if ((!cloudAudioUrl || cloudAudioUrl.startsWith('blob:')) && entry.audioBlob) {
     try {
       cloudAudioUrl = await blobToBase64(entry.audioBlob);
@@ -207,7 +200,7 @@ export async function syncEntryToCloud(userId: string, entry: DiaryEntry): Promi
     }
   }
 
-  // 3. Prepare metadata
+  // Prepare metadata document
   const entryDoc = {
     id: entry.id,
     date: entry.date,
