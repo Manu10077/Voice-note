@@ -38,7 +38,16 @@ export interface FirebaseConfig {
   appId: string;
 }
 
-// 1. Get Firebase configuration from environment or localStorage
+const DEFAULT_FIREBASE_CONFIG: FirebaseConfig = {
+  apiKey: "AIzaSyDwJygLd7Bj7SREeu2838sPGlEVs80dtx0",
+  authDomain: "my-voice-diary-161a2.firebaseapp.com",
+  projectId: "my-voice-diary-161a2",
+  storageBucket: "my-voice-diary-161a2.firebasestorage.app",
+  messagingSenderId: "547406256940",
+  appId: "1:547406256940:web:9aa1e991367ab7a8f96a89",
+};
+
+// 1. Get Firebase configuration from environment, localStorage, or default
 export function getFirebaseConfig(): FirebaseConfig | null {
   const envConfig: FirebaseConfig = {
     apiKey: import.meta.env.VITE_FIREBASE_API_KEY || '',
@@ -53,7 +62,7 @@ export function getFirebaseConfig(): FirebaseConfig | null {
     return envConfig;
   }
 
-  // Check localStorage if user pasted config directly in the web UI
+  // Check localStorage if user pasted custom config directly in the web UI
   const localSaved = localStorage.getItem('voice_diary_firebase_config');
   if (localSaved) {
     try {
@@ -66,7 +75,8 @@ export function getFirebaseConfig(): FirebaseConfig | null {
     }
   }
 
-  return null;
+  // Return default configured project
+  return DEFAULT_FIREBASE_CONFIG;
 }
 
 export function saveFirebaseConfig(config: FirebaseConfig) {
