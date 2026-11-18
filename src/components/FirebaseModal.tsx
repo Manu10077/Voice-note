@@ -247,3 +247,4 @@ export const FirebaseModal: React.FC<FirebaseModalProps> = ({
     </dialog>
   );
 };
+

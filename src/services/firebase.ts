@@ -98,7 +98,7 @@ if (config) {
 }
 
 export function isFirebaseConfigured(): boolean {
-  return !!(auth && firestore && storage);
+  return !!(auth && firestore);
 }
 
 // 3. Authentication helpers
@@ -164,21 +164,40 @@ export async function deleteAudioFromStorage(userId: string, entryId: string) {
   }
 }
 
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
 // 5. Firestore Database helpers
 export async function syncEntryToCloud(userId: string, entry: DiaryEntry): Promise<DiaryEntry> {
   if (!firestore) return entry;
 
-  // 1. If we have a local audio Blob, upload it to Cloud Storage first
+  // 1. If Cloud Storage is available, try uploading audio there
   let cloudAudioUrl = entry.audioUrl;
   if (entry.audioBlob && storage && (!cloudAudioUrl || cloudAudioUrl.startsWith('blob:'))) {
     try {
       cloudAudioUrl = await uploadAudioToStorage(userId, entry.id, entry.audioBlob);
     } catch (err) {
-      console.warn('Failed to upload audio to cloud storage:', err);
+      console.warn('Firebase Storage upload skipped/failed (Spark plan). Saving audio directly into Firestore:', err);
     }
   }
 
-  // 2. Prepare metadata (exclude raw Blob from Firestore document)
+  // 2. Spark Plan Free Fallback: If Storage bucket requires Blaze plan,
+  // save the audio directly as a Base64 data URL inside Firestore (up to 1MB per document)!
+  if ((!cloudAudioUrl || cloudAudioUrl.startsWith('blob:')) && entry.audioBlob) {
+    try {
+      cloudAudioUrl = await blobToBase64(entry.audioBlob);
+    } catch (err) {
+      console.warn('Failed to convert audio to base64:', err);
+    }
+  }
+
+  // 3. Prepare metadata
   const entryDoc = {
     id: entry.id,
     date: entry.date,
@@ -227,7 +246,7 @@ export async function fetchEntriesFromCloud(userId: string): Promise<DiaryEntry[
       title: data.title,
       category: data.category,
       mood: data.mood,
-      audioUrl: data.audioUrl,
+      audioUrl: data.audioUrl || data.audioDataUrl || '',
       audioMimeType: data.audioMimeType || 'audio/webm',
       duration: data.duration || 0,
       transcript: data.transcript || '',
@@ -253,3 +272,4 @@ export async function deleteEntryFromCloud(userId: string, entryId: string): Pro
   }
   await deleteAudioFromStorage(userId, entryId);
 }
+
