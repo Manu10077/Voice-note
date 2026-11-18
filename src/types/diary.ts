@@ -56,13 +56,16 @@ export interface DiaryEntry {
   title: string;
   category: CategoryType;
   mood: MoodType;
-  audioBlob: Blob;
+  audioBlob?: Blob;
+  audioUrl?: string; // Cloud storage URL or local preview URL
   audioMimeType: string;
   duration: number; // in seconds
   transcript: string;
   summary?: string;
   keyPoints?: string[];
   tags: string[];
+  userId?: string;
+  syncedToCloud?: boolean;
 }
 
 export interface DaySummary {

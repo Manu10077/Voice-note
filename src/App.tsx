@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Mic, Plus } from 'lucide-react';
+import { Mic, Cloud, RefreshCw } from 'lucide-react';
 import { Navbar } from './components/Navbar';
 import { CalendarStrip } from './components/CalendarStrip';
 import { DailyTimeline } from './components/DailyTimeline';
@@ -8,6 +8,7 @@ import { CalendarModal } from './components/CalendarModal';
 import { SearchBar } from './components/SearchBar';
 import { StatsModal } from './components/StatsModal';
 import { ExportModal } from './components/ExportModal';
+import { FirebaseModal } from './components/FirebaseModal';
 import { DiaryEntry } from './types/diary';
 import { 
   getEntriesByDate, 
@@ -17,6 +18,16 @@ import {
   getEntryDatesMap, 
   getDiaryStats 
 } from './services/db';
+import { 
+  onAuthUserChanged, 
+  loginWithGoogle, 
+  logoutUser, 
+  isFirebaseConfigured,
+  syncEntryToCloud,
+  fetchEntriesFromCloud,
+  deleteEntryFromCloud
+} from './services/firebase';
+import { User } from 'firebase/auth';
 import { getTodayDateString, getCurrentTimeString } from './utils/date';
 import { createWelcomeAudioBlob } from './utils/audioSample';
 
@@ -32,6 +43,11 @@ export default function App() {
     moodCounts: {} as Record<string, number>,
   });
 
+  // User & Cloud Sync State
+  const [user, setUser] = useState<User | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<string | null>(null);
+
   // Theme state
   const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
     return localStorage.getItem('voice_diary_theme') === 'dark';
@@ -43,6 +59,7 @@ export default function App() {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isStatsOpen, setIsStatsOpen] = useState(false);
   const [isExportOpen, setIsExportOpen] = useState(false);
+  const [isFirebaseModalOpen, setIsFirebaseModalOpen] = useState(false);
 
   // Sync dark mode class
   useEffect(() => {
@@ -55,7 +72,7 @@ export default function App() {
     }
   }, [isDarkMode]);
 
-  // Refresh data
+  // Refresh local data
   const refreshData = useCallback(async () => {
     const dayEntries = await getEntriesByDate(selectedDate);
     setEntries(dayEntries);
@@ -67,12 +84,42 @@ export default function App() {
     setStats(diaryStats);
   }, [selectedDate]);
 
+  // Sync from Cloud when user logs in or switches device
+  const syncFromCloud = useCallback(async (activeUser: User) => {
+    setIsSyncing(true);
+    setSyncStatus('Syncing your cloud diary...');
+    try {
+      const cloudEntries = await fetchEntriesFromCloud(activeUser.uid);
+      for (const entry of cloudEntries) {
+        await saveEntry(entry);
+      }
+      setSyncStatus('Diary is up-to-date across your devices!');
+      setTimeout(() => setSyncStatus(null), 3500);
+      await refreshData();
+    } catch (err) {
+      console.warn('Sync from cloud error:', err);
+      setSyncStatus('Cloud sync error.');
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [refreshData]);
+
+  // Auth state listener
+  useEffect(() => {
+    const unsubscribe = onAuthUserChanged(async (currentUser) => {
+      setUser(currentUser);
+      if (currentUser) {
+        await syncFromCloud(currentUser);
+      }
+    });
+    return () => unsubscribe();
+  }, [syncFromCloud]);
+
   // Initial load & welcome note check
   useEffect(() => {
     const initApp = async () => {
       const all = await getAllEntries();
       if (all.length === 0) {
-        // Create an introductory welcome voice entry
         try {
           const chimeBlob = await createWelcomeAudioBlob();
           const welcomeEntry: DiaryEntry = {
@@ -91,7 +138,7 @@ export default function App() {
             keyPoints: [
               'Record multiple voice reflections throughout each day.',
               'Real-time Speech-to-Text transcribes your words automatically.',
-              '100% private and stored locally on your device.',
+              '100% private and stored locally, with cloud sync across devices.',
             ],
             tags: ['Welcome', 'First Entry', 'Voice Note'],
           };
@@ -108,20 +155,58 @@ export default function App() {
 
   // Handle Save
   const handleSaveEntry = async (newEntry: DiaryEntry) => {
+    // 1. Save locally to IndexedDB first
     await saveEntry(newEntry);
     await refreshData();
+
+    // 2. If user is signed in, sync audio and metadata to Cloud Storage + Firestore
+    if (user) {
+      try {
+        const synced = await syncEntryToCloud(user.uid, newEntry);
+        await saveEntry(synced);
+        await refreshData();
+      } catch (err) {
+        console.warn('Background cloud sync failed:', err);
+      }
+    }
   };
 
   // Handle Delete
   const handleDeleteEntry = async (id: string) => {
     await deleteEntry(id);
     await refreshData();
+    if (user) {
+      try {
+        await deleteEntryFromCloud(user.uid, id);
+      } catch (err) {
+        console.warn('Failed to delete from cloud:', err);
+      }
+    }
   };
 
   // Handle Update
   const handleUpdateEntry = async (updated: DiaryEntry) => {
     await saveEntry(updated);
     await refreshData();
+    if (user) {
+      try {
+        await syncEntryToCloud(user.uid, updated);
+      } catch (err) {
+        console.warn('Failed to update cloud doc:', err);
+      }
+    }
+  };
+
+  const handleLogin = async () => {
+    try {
+      await loginWithGoogle();
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : 'Login failed');
+    }
+  };
+
+  const handleLogout = async () => {
+    await logoutUser();
   };
 
   return (
@@ -131,12 +216,25 @@ export default function App() {
         currentStreak={stats.currentStreak}
         totalEntries={stats.totalEntries}
         isDarkMode={isDarkMode}
+        user={user}
+        isFirebaseConfigured={isFirebaseConfigured()}
+        onLogin={handleLogin}
+        onLogout={handleLogout}
+        onOpenFirebaseModal={() => setIsFirebaseModalOpen(true)}
         onToggleDarkMode={() => setIsDarkMode(!isDarkMode)}
         onOpenSearch={() => setIsSearchOpen(true)}
         onOpenStats={() => setIsStatsOpen(true)}
         onOpenExport={() => setIsExportOpen(true)}
         onOpenRecord={() => setIsRecordOpen(true)}
       />
+
+      {/* Cloud Sync Status Banner */}
+      {syncStatus && (
+        <div className="bg-amber-100/90 dark:bg-amber-950/80 border-b border-amber-200 dark:border-amber-900 py-1.5 px-4 text-center text-xs text-amber-900 dark:text-amber-200 flex items-center justify-center gap-2">
+          {isSyncing ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Cloud className="w-3.5 h-3.5 text-amber-600" />}
+          <span>{syncStatus}</span>
+        </div>
+      )}
 
       {/* Main Content Area */}
       <main className="flex-1 max-w-3xl w-full mx-auto px-4 py-6 space-y-6">
@@ -206,7 +304,11 @@ export default function App() {
         onClose={() => setIsExportOpen(false)}
         onRefresh={refreshData}
       />
+
+      <FirebaseModal
+        isOpen={isFirebaseModalOpen}
+        onClose={() => setIsFirebaseModalOpen(false)}
+      />
     </div>
   );
 }
-

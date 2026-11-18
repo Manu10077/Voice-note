@@ -41,10 +41,11 @@ export const ExportModal: React.FC<ExportModalProps> = ({
         all.map(async (entry) => {
           let base64Audio = '';
           if (entry.audioBlob) {
+            const blob = entry.audioBlob;
             base64Audio = await new Promise((resolve) => {
               const reader = new FileReader();
               reader.onloadend = () => resolve(reader.result as string);
-              reader.readAsDataURL(entry.audioBlob);
+              reader.readAsDataURL(blob);
             });
           }
           return {

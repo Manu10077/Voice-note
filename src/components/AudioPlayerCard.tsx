@@ -13,7 +13,8 @@ import {
   Sparkles, 
   Tag as TagIcon,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Cloud
 } from 'lucide-react';
 import { DiaryEntry, MOODS } from '../types/diary';
 import { formatSeconds } from '../utils/date';
@@ -41,10 +42,12 @@ export const AudioPlayerCard: React.FC<AudioPlayerCardProps> = ({
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  // Generate object URL for the audio Blob
+  // Generate object URL for local audio Blob or use cloud storage audioUrl
   useEffect(() => {
     let url: string | null = null;
-    if (entry.audioBlob) {
+    if (entry.audioUrl) {
+      setAudioUrl(entry.audioUrl);
+    } else if (entry.audioBlob) {
       url = URL.createObjectURL(entry.audioBlob);
       setAudioUrl(url);
     }
@@ -53,7 +56,7 @@ export const AudioPlayerCard: React.FC<AudioPlayerCardProps> = ({
         URL.revokeObjectURL(url);
       }
     };
-  }, [entry.audioBlob]);
+  }, [entry.audioBlob, entry.audioUrl]);
 
   const togglePlay = () => {
     if (!audioRef.current) return;
@@ -146,6 +149,12 @@ export const AudioPlayerCard: React.FC<AudioPlayerCardProps> = ({
             <span className="text-xs text-stone-500 dark:text-stone-400">
               {entry.time}
             </span>
+            {entry.syncedToCloud && (
+              <span className="flex items-center gap-1 text-[11px] text-teal-600 dark:text-teal-400" title="Synced to cloud">
+                <Cloud className="w-3 h-3" />
+                <span>Cloud</span>
+              </span>
+            )}
           </div>
           <h3 className="text-lg font-serif font-medium text-stone-900 dark:text-stone-100">
             {entry.title}
